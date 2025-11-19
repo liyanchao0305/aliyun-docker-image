@@ -5,13 +5,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'images.txt'  # 关键：只有 images.txt 变更时才触发
-
-env:
-  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"
-  ALIYUN_NAME_SPACE: "${{ secrets.ALIYUN_NAME_SPACE }}"
-  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"
-  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
+      - 'images.txt'
 
 jobs:
   mirror-images:
@@ -33,10 +27,12 @@ jobs:
           "${{ secrets.ALIYUN_REGISTRY }}"
 
     - name: Mirror images to Aliyun
+      env:
+        ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"
+        ALIYUN_NAME_SPACE: "${{ secrets.ALIYUN_NAME_SPACE }}"
       run: |
-        set -e  # 遇到错误立即退出
+        set -e
         
-        # 检查 images.txt 文件是否存在
         if [ ! -f "images.txt" ]; then
           echo "❌ images.txt 文件不存在"
           exit 1
