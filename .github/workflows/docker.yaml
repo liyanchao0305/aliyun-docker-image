@@ -1,10 +1,58 @@
-    - name: Public Registry Test
+name: Docker Image Mirror
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'images.txt'
+
+jobs:
+  mirror-images:
+    name: Mirror Docker Images
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Debug Authentication
       run: |
-        echo "=== 测试公共仓库 ==="
-        # 测试推送到 Docker Hub（对比验证）
-        docker pull hello-world
-        docker tag hello-world hello-world-test-$(date +%s)
-        echo "Docker 基础功能正常"
+        echo "=== 调试认证信息 ==="
+        echo "用户名: 李彦超0305"
+        echo "密码长度: $(echo -n '${{ secrets.ALIYUN_REGISTRY_PASSWORD }}' | wc -c)"
         
-        # 测试阿里云认证
-        echo "认证信息配置完成，请检查阿里云控制台权限设置"
+        # 测试认证配置
+        mkdir -p ~/.docker
+        AUTH_TOKEN=$(echo -n "李彦超0305:${{ secrets.ALIYUN_REGISTRY_PASSWORD }}" | base64)
+        echo "认证Token: $AUTH_TOKEN"
+        
+        cat > ~/.docker/config.json << EOF
+        {
+          "auths": {
+            "registry.cn-beijing.aliyuncs.com": {
+              "auth": "${AUTH_TOKEN}"
+            }
+          }
+        }
+        EOF
+        
+        echo "=== 认证文件内容 ==="
+        cat ~/.docker/config.json
+
+    - name: Test Registry Access
+      run: |
+        echo "=== 测试仓库访问 ==="
+        # 测试是否能访问仓库
+        curl -I https://registry.cn-beijing.aliyuncs.com/v2/ || echo "仓库访问测试完成"
+        
+        # 测试列出镜像（只读操作）
+        curl https://registry.cn-beijing.aliyuncs.com/v2/liyanchao/test-hello/tags/list || echo "镜像列表测试完成"
+
+    - name: Create Test Namespace
+      run: |
+        echo "=== 创建测试命名空间 ==="
+        # 尝试推送到一个新的测试命名空间
+        docker pull hello-world
+        docker tag hello-world registry.cn-beijing.aliyuncs.com/test-namespace-$(date +%s)/test-hello:latest
+        docker push registry.cn-beijing.aliyuncs.com/test-namespace-$(date +%s)/test-hello:latest || echo "推送测试失败"
