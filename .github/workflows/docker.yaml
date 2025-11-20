@@ -16,42 +16,37 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Setup Docker Auth
+    - name: Simple Docker Login
       run: |
-        mkdir -p ~/.docker
-        echo '{
-          "auths": {
-            "registry.cn-beijing.aliyuncs.com": {
-              "auth": "'$(echo -n "李彦超0305:${{ secrets.ALIYUN_REGISTRY_PASSWORD }}" | base64)'"
-            }
-          }
-        }' > ~/.docker/config.json
+        # 直接使用密码登录（避免配置文件问题）
+        docker login \
+          registry.cn-beijing.aliyuncs.com \
+          -u "李彦超0305" \
+          -p "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
 
-    - name: Test Push
+    - name: Test and Sync
       run: |
+        # 测试推送
         docker pull hello-world
-        docker tag hello-world registry.cn-beijing.aliyuncs.com/liyanchao/test-hello:latest
-        docker push registry.cn-beijing.aliyuncs.com/liyanchao/test-hello:latest
-
-    - name: Sync Images
-      run: |
-        if [ ! -f "images.txt" ]; then
-          echo "❌ images.txt not found"
-          exit 1
-        fi
+        docker tag hello-world registry.cn-beijing.aliyuncs.com/liyanchao/test-simple:latest
+        docker push registry.cn-beijing.aliyuncs.com/liyanchao/test-simple:latest
+        echo "✅ 测试推送成功"
         
-        while IFS= read -r line; do
-          [[ -z "$line" ]] && continue
-          [[ "$line" =~ ^# ]] && continue
-          
-          image=$(echo "$line" | awk '{print $NF}')
-          echo "Processing: $image"
-          
-          docker pull $image
-          new_name="registry.cn-beijing.aliyuncs.com/liyanchao/$(echo $image | sed 's|/|_|g')"
-          
-          docker tag $image $new_name
-          docker push $new_name
-          echo "✅ Pushed: $new_name"
-          
-        done < images.txt
+        # 同步其他镜像
+        if [ -f "images.txt" ]; then
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            [[ "$line" =~ ^# ]] && continue
+            
+            image=$(echo "$line" | awk '{print $NF}')
+            echo "处理: $image"
+            
+            docker pull $image
+            new_name="registry.cn-beijing.aliyuncs.com/liyanchao/$(echo $image | sed 's|/|_|g')"
+            
+            docker tag $image $new_name
+            docker push $new_name
+            echo "✅ 完成: $new_name"
+            
+          done < images.txt
+        fi
