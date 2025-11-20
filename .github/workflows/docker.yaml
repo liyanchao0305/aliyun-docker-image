@@ -21,10 +21,10 @@ jobs:
 
     - name: Login to Aliyun Container Registry
       run: |
-        # 直接使用密码登录，避免中文用户名编码问题
-        docker login \
-          --username="李彦超0305" \
-          --password="${{ secrets.ALIYUN_REGISTRY_PASSWORD }}" \
+        # 使用 echo 传递中文用户名和密码
+        echo "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}" | docker login \
+          -u "李彦超0305" \
+          --password-stdin \
           "${{ secrets.ALIYUN_REGISTRY }}"
 
     - name: Mirror images to Aliyun
@@ -41,7 +41,7 @@ jobs:
         
         echo "📄 开始处理 images.txt 文件..."
         
-        # 数据预处理,判断镜像是否重名
+        # 你的原有镜像处理脚本
         declare -A duplicate_images
         declare -A temp_map
         
