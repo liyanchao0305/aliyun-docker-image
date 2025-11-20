@@ -21,25 +21,59 @@ jobs:
         mkdir -p ~/.docker
         AUTH=$(echo -n "李彦超0305:${{ secrets.ALIYUN_REGISTRY_PASSWORD }}" | base64)
         echo "{\"auths\":{\"registry.cn-beijing.aliyuncs.com\":{\"auth\":\"$AUTH\"}}}" > ~/.docker/config.json
+        echo "✅ Docker 认证配置完成"
 
-    - name: Test Push
+    - name: Test Push to PHP Namespace
       run: |
+        echo "=== 测试推送到 php 命名空间 ==="
         docker pull hello-world
-        docker tag hello-world registry.cn-beijing.aliyuncs.com/liyanchao/test-hello:latest
-        docker push registry.cn-beijing.aliyuncs.com/liyanchao/test-hello:latest
+        docker tag hello-world registry.cn-beijing.aliyuncs.com/php/test-hello:latest
+        echo "准备推送到: registry.cn-beijing.aliyuncs.com/php/test-hello"
+        docker push registry.cn-beijing.aliyuncs.com/php/test-hello:latest
+        echo "✅ 测试推送成功"
 
-    - name: Sync Images
+    - name: Sync Images to PHP
       run: |
-        if [ -f "images.txt" ]; then
-          while IFS= read -r line; do
-            [[ -z "$line" ]] && continue
-            [[ "$line" =~ ^# ]] && continue
-            image=$(echo "$line" | awk '{print $NF}')
-            echo "Processing: $image"
-            docker pull $image
-            new_name="registry.cn-beijing.aliyuncs.com/liyanchao/$(echo $image | tr '/:' '_-')"
-            docker tag $image $new_name
-            docker push $new_name
-            echo "Done: $new_name"
-          done < images.txt
+        echo "=== 同步镜像到 php 命名空间 ==="
+        
+        if [ ! -f "images.txt" ]; then
+          echo "❌ images.txt 不存在"
+          exit 1
         fi
+        
+        echo "images.txt 内容:"
+        cat images.txt
+        echo ""
+        
+        count=0
+        
+        while IFS= read -r line; do
+          # 跳过空行和注释
+          [[ -z "$line" ]] && continue
+          [[ "$line" =~ ^[[:space:]]*# ]] && continue
+          
+          count=$((count + 1))
+          echo "--- 处理第 $count 个镜像 ---"
+          
+          # 提取镜像名
+          image=$(echo "$line" | awk '{print $NF}')
+          echo "原始镜像: $image"
+          
+          # 拉取镜像
+          docker pull $image
+          
+          # 推送到 php 命名空间
+          image_name=$(echo $image | sed 's|/|_|g' | sed 's|:|-|g')
+          target_image="registry.cn-beijing.aliyuncs.com/php/$image_name"
+          echo "目标镜像: $target_image"
+          
+          # 标记和推送
+          docker tag $image $target_image
+          docker push $target_image
+          
+          echo "✅ 完成: $target_image"
+          echo ""
+          
+        done < images.txt
+        
+        echo "🎉 成功同步 $count 个镜像到 php 命名空间"
