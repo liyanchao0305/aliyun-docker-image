@@ -16,112 +16,42 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Fix Authentication
+    - name: Setup Docker Auth
       run: |
-        echo "=== 修复认证配置 ==="
-        
-        # 清除旧的配置
-        rm -rf ~/.docker
-        
-        # 创建新的认证配置
         mkdir -p ~/.docker
-        
-        # 直接使用明确的变量
-        USERNAME="李彦超0305"
-        PASSWORD="${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
-        REGISTRY="registry.cn-beijing.aliyuncs.com"
-        
-        echo "用户名: $USERNAME"
-        echo "密码长度: ${#PASSWORD}"
-        echo "仓库地址: $REGISTRY"
-        
-        # 生成正确的 base64 认证信息
-        AUTH_TOKEN=$(echo -n "$USERNAME:$PASSWORD" | base64 -w 0)
-        echo "认证Token长度: ${#AUTH_TOKEN}"
-        
-        # 创建正确的配置文件
-        cat > ~/.docker/config.json << EOF
-{
-  "auths": {
-    "$REGISTRY": {
-      "auth": "$AUTH_TOKEN"
-    }
-  }
-}
-EOF
-        
-        echo "=== 认证文件内容 ==="
-        cat ~/.docker/config.json
-        echo ""
+        echo '{
+          "auths": {
+            "registry.cn-beijing.aliyuncs.com": {
+              "auth": "'$(echo -n "李彦超0305:${{ secrets.ALIYUN_REGISTRY_PASSWORD }}" | base64)'"
+            }
+          }
+        }' > ~/.docker/config.json
 
-    - name: Verify Authentication
+    - name: Test Push
       run: |
-        echo "=== 验证认证 ==="
-        
-        # 测试认证是否有效
-        REGISTRY="registry.cn-beijing.aliyuncs.com"
-        NAMESPACE="liyanchao"
-        
-        # 测试拉取公共镜像
         docker pull hello-world
-        echo "✅ Docker 基础功能正常"
-        
-        # 测试推送到阿里云
-        docker tag hello-world ${REGISTRY}/${NAMESPACE}/test-auth-verify:latest
-        echo "尝试推送到: ${REGISTRY}/${NAMESPACE}/test-auth-verify"
-        
-        if docker push ${REGISTRY}/${NAMESPACE}/test-auth-verify:latest; then
-          echo "✅ 认证成功！镜像已推送"
-        else
-          echo "❌ 认证失败，请检查用户名密码"
-          exit 1
-        fi
+        docker tag hello-world registry.cn-beijing.aliyuncs.com/liyanchao/test-hello:latest
+        docker push registry.cn-beijing.aliyuncs.com/liyanchao/test-hello:latest
 
-    - name: Mirror Images
-      if: success()
+    - name: Sync Images
       run: |
-        echo "=== 开始同步镜像 ==="
-        
         if [ ! -f "images.txt" ]; then
-          echo "❌ images.txt 文件不存在"
+          echo "❌ images.txt not found"
           exit 1
         fi
         
-        echo "images.txt 内容:"
-        cat images.txt
-        echo ""
-        
-        REGISTRY="registry.cn-beijing.aliyuncs.com"
-        NAMESPACE="liyanchao"
-        
-        # 处理每个镜像
         while IFS= read -r line; do
-          # 跳过空行和注释
           [[ -z "$line" ]] && continue
-          [[ "$line" =~ ^[[:space:]]*# ]] && continue
+          [[ "$line" =~ ^# ]] && continue
           
-          echo "处理: $line"
-          
-          # 提取镜像名
           image=$(echo "$line" | awk '{print $NF}')
-          echo "镜像: $image"
+          echo "Processing: $image"
           
-          # 拉取镜像
           docker pull $image
+          new_name="registry.cn-beijing.aliyuncs.com/liyanchao/$(echo $image | sed 's|/|_|g')"
           
-          # 生成目标镜像名（简化处理）
-          image_name=$(echo $image | sed 's|/|_|g' | sed 's|:|-|g')
-          target_image="${REGISTRY}/${NAMESPACE}/${image_name}"
-          
-          echo "推送到: $target_image"
-          
-          # 标记和推送
-          docker tag $image $target_image
-          docker push $target_image
-          
-          echo "✅ 完成: $target_image"
-          echo "---"
+          docker tag $image $new_name
+          docker push $new_name
+          echo "✅ Pushed: $new_name"
           
         done < images.txt
-        
-        echo "🎉 所有镜像同步完成！"
