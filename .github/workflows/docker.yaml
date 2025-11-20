@@ -16,128 +16,30 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Create Docker Config
+    - name: Setup Docker Auth
       run: |
-        echo "=== 创建 Docker 配置文件 ==="
-        
-        # 清除旧配置
-        rm -rf ~/.docker
         mkdir -p ~/.docker
-        
-        # 使用正确的 base64 编码
-        AUTH=$(echo -n "李彦超0305:${{ secrets.ALIYUN_REGISTRY_PASSWORD }}" | base64 -w 0)
-        
-        # 创建正确的 JSON 配置文件
-        cat > ~/.docker/config.json << 'EOF'
-{
-  "auths": {
-    "registry.cn-beijing.aliyuncs.com": {
-      "auth": "REPLACE_AUTH"
-    }
-  }
-}
-EOF
-        
-        # 替换认证信息
-        sed -i "s|REPLACE_AUTH|$AUTH|g" ~/.docker/config.json
-        
-        echo "认证文件创建完成"
-        echo "文件内容:"
-        cat ~/.docker/config.json
-
-    - name: Verify Config
-      run: |
-        echo "=== 验证配置 ==="
-        # 检查配置文件
-        if [ -f ~/.docker/config.json ]; then
-          echo "✅ 配置文件存在"
-          echo "文件大小: $(wc -c < ~/.docker/config.json) bytes"
-        else
-          echo "❌ 配置文件不存在"
-          exit 1
-        fi
+        AUTH=$(echo -n "李彦超0305:${{ secrets.ALIYUN_REGISTRY_PASSWORD }}" | base64)
+        echo "{\"auths\":{\"registry.cn-beijing.aliyuncs.com\":{\"auth\":\"$AUTH\"}}}" > ~/.docker/config.json
 
     - name: Test Push
       run: |
-        echo "=== 测试推送 ==="
-        
-        # 拉取测试镜像
         docker pull hello-world
-        
-        # 测试推送
-        docker tag hello-world registry.cn-beijing.aliyuncs.com/liyanchao/test-final:latest
-        echo "准备推送到: registry.cn-beijing.aliyuncs.com/liyanchao/test-final"
-        
-        # 尝试推送
-        if docker push registry.cn-beijing.aliyuncs.com/liyanchao/test-final:latest; then
-          echo "✅ 推送成功！认证配置正确"
-        else
-          echo "❌ 推送失败"
-          echo "调试信息:"
-          echo "当前用户: $(whoami)"
-          echo "Docker 信息:"
-          docker info
-          exit 1
-        fi
+        docker tag hello-world registry.cn-beijing.aliyuncs.com/liyanchao/test-hello:latest
+        docker push registry.cn-beijing.aliyuncs.com/liyanchao/test-hello:latest
 
     - name: Sync Images
-      if: success()
       run: |
-        echo "=== 同步镜像 ==="
-        
-        if [ ! -f "images.txt" ]; then
-          echo "❌ images.txt 不存在"
-          exit 1
-        fi
-        
-        # 显示 images.txt 内容
-        echo "images.txt 内容:"
-        cat images.txt
-        echo ""
-        
-        # 计数器
-        count=0
-        
-        # 处理镜像
-        while IFS= read -r line; do
-          # 跳过空行和注释
-          if [[ -z "$line" ]]; then
-            continue
-          fi
-          if [[ "$line" =~ ^[[:space:]]*# ]]; then
-            continue
-          fi
-          
-          count=$((count + 1))
-          echo "--- 处理第 $count 个镜像 ---"
-          echo "原始行: $line"
-          
-          # 提取镜像名（最后一个字段）
-          image=$(echo "$line" | awk '{print $NF}')
-          echo "镜像名: $image"
-          
-          # 拉取镜像
-          echo "拉取镜像..."
-          docker pull $image
-          
-          # 生成新镜像名（替换特殊字符）
-          new_name=$(echo "registry.cn-beijing.aliyuncs.com/liyanchao/$image" | sed 's|/|_|g' | sed 's|:|_|g')
-          echo "目标镜像: $new_name"
-          
-          # 标记和推送
-          echo "标记镜像..."
-          docker tag $image $new_name
-          
-          echo "推送镜像..."
-          docker push $new_name
-          
-          echo "✅ 完成: $new_name"
-          echo ""
-          
-        done < images.txt
-        
-        if [ $count -eq 0 ]; then
-          echo "⚠️  没有找到有效的镜像行"
-        else
-          echo "🎉 成功同步 $count 个镜像"
+        if [ -f "images.txt" ]; then
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            [[ "$line" =~ ^# ]] && continue
+            image=$(echo "$line" | awk '{print $NF}')
+            echo "Processing: $image"
+            docker pull $image
+            new_name="registry.cn-beijing.aliyuncs.com/liyanchao/$(echo $image | tr '/:' '_-')"
+            docker tag $image $new_name
+            docker push $new_name
+            echo "Done: $new_name"
+          done < images.txt
         fi
