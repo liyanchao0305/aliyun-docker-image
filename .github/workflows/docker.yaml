@@ -1,4 +1,4 @@
-name: Docker Image Mirror
+name: Docker Image Mirror with Clear Logs
 
 on:
   workflow_dispatch:
@@ -18,36 +18,82 @@ jobs:
 
     - name: Setup Docker Authentication
       run: |
+        echo "=== Setup Docker Auth ==="
         mkdir -p ~/.docker
+        
         USERNAME="李彦超0305"
-        PASSWORD="${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"  # 正确引用
+        PASSWORD="${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
+        
+        echo "Username: $USERNAME"
+        echo "Password length: ${#PASSWORD} chars"
         
         AUTH=$(echo -n "$USERNAME:$PASSWORD" | base64)
         echo "{\"auths\":{\"registry.cn-beijing.aliyuncs.com\":{\"auth\":\"$AUTH\"}}}" > ~/.docker/config.json
-        echo "✅ 认证配置完成"
+        echo "Auth configured"
 
-    - name: Sync Images
+    - name: Test Push with Clear Log
       run: |
+        echo "=== Test Push ==="
+        docker pull hello-world
+        TEST_IMAGE="registry.cn-beijing.aliyuncs.com/liyanchao/php:clear-test"
+        echo "Pushing to: $TEST_IMAGE"
+        docker tag hello-world $TEST_IMAGE
+        docker push $TEST_IMAGE
+        echo "SUCCESS: Image pushed to $TEST_IMAGE"
+
+    - name: Check Current Images
+      run: |
+        echo "=== Current local images ==="
+        docker images | head -10
+
+    - name: View images.txt Content
+      run: |
+        echo "=== images.txt Content ==="
+        if [ -f "images.txt" ]; then
+          cat images.txt
+          echo "Total lines: $(wc -l < images.txt)"
+        else
+          echo "images.txt not found"
+        fi
+
+    - name: Sync Images with Progress
+      run: |
+        echo "=== Sync Images Progress ==="
+        
         if [ ! -f "images.txt" ]; then
-          echo "❌ images.txt 不存在"
+          echo "ERROR: images.txt not found"
           exit 1
         fi
         
-        count=0
-        while IFS= read -r line; do
-          [[ -z "$line" ]] && continue
-          [[ "$line" =~ ^# ]] && continue
+        COUNT=0
+        while IFS= read -r LINE; do
+          # Skip empty lines and comments
+          [[ -z "$LINE" ]] && continue
+          [[ "$LINE" =~ ^[[:space:]]*# ]] && continue
           
-          count=$((count + 1))
-          image=$(echo "$line" | awk '{print $NF}')
-          echo "处理镜像: $image"
+          COUNT=$((COUNT + 1))
+          echo "--- Processing image $COUNT ---"
           
-          docker pull $image
-          new_name="registry.cn-beijing.aliyuncs.com/liyanchao/$(echo $image | sed 's|/|_|g' | sed 's|:|-|g')"
-          docker tag $image $new_name
-          docker push $new_name
-          echo "✅ 完成"
+          # Extract image name
+          IMAGE=$(echo "$LINE" | awk '{print $NF}')
+          echo "Source: $IMAGE"
+          
+          # Pull image
+          docker pull $IMAGE
+          
+          # Create target name
+          TARGET_NAME="registry.cn-beijing.aliyuncs.com/liyanchao/$(echo $IMAGE | sed 's|/|_|g' | sed 's|:|-|g')"
+          echo "Target: $TARGET_NAME"
+          
+          # Tag and push
+          docker tag $IMAGE $TARGET_NAME
+          docker push $TARGET_NAME
+          
+          echo "SUCCESS: $TARGET_NAME"
+          echo ""
           
         done < images.txt
         
-        echo "🎉 成功同步 $count 个镜像"
+        echo "=== SUMMARY ==="
+        echo "Total images synced: $COUNT"
+        echo "All images pushed to: registry.cn-beijing.aliyuncs.com/liyanchao/"
