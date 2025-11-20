@@ -1,4 +1,4 @@
-name: Docker Image Mirror Fixed
+name: Docker Image Mirror
 
 on:
   workflow_dispatch:
@@ -16,60 +16,22 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Setup Docker Auth with Fixed Password
+    - name: Setup Docker Authentication
       run: |
-        echo "=== 使用固定密码设置认证 ==="
         mkdir -p ~/.docker
-        
-        # 直接使用固定密码
         USERNAME="李彦超0305"
-        PASSWORD="aliyun123456"
+        PASSWORD="${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"  # 正确引用
         
-        echo "用户名: $USERNAME"
-        echo "密码: $PASSWORD"
-        echo "密码长度: ${#PASSWORD} 字符"
-        
-        # 生成认证信息
         AUTH=$(echo -n "$USERNAME:$PASSWORD" | base64)
-        echo "认证Token: $AUTH"
-        
-        # 创建配置文件
         echo "{\"auths\":{\"registry.cn-beijing.aliyuncs.com\":{\"auth\":\"$AUTH\"}}}" > ~/.docker/config.json
-        
         echo "✅ 认证配置完成"
-        echo "配置文件内容:"
-        cat ~/.docker/config.json
-
-    - name: Test Push with Fixed Auth
-      run: |
-        echo "=== 测试推送 ==="
-        
-        # 拉取测试镜像
-        docker pull hello-world
-        echo "✅ hello-world 拉取成功"
-        
-        # 推送到阿里云
-        TARGET_IMAGE="registry.cn-beijing.aliyuncs.com/liyanchao/php:fixed-password-test"
-        echo "准备推送到: $TARGET_IMAGE"
-        
-        docker tag hello-world $TARGET_IMAGE
-        docker push $TARGET_IMAGE
-        
-        echo "✅ 推送测试成功！"
 
     - name: Sync Images
-      if: success()
       run: |
-        echo "=== 同步镜像 ==="
-        
         if [ ! -f "images.txt" ]; then
           echo "❌ images.txt 不存在"
           exit 1
         fi
-        
-        echo "images.txt 内容:"
-        cat images.txt
-        echo ""
         
         count=0
         while IFS= read -r line; do
@@ -77,26 +39,14 @@ jobs:
           [[ "$line" =~ ^# ]] && continue
           
           count=$((count + 1))
-          echo "处理第 $count 个镜像: $line"
-          
           image=$(echo "$line" | awk '{print $NF}')
+          echo "处理镜像: $image"
+          
           docker pull $image
-          
-          # 推送到不同的现有仓库
-          if [ $count -eq 1 ]; then
-            repo="php"
-          elif [ $count -eq 2 ]; then
-            repo="nginx" 
-          elif [ $count -eq 3 ]; then
-            repo="mysql"
-          else
-            repo="other"
-          fi
-          
-          target_image="registry.cn-beijing.aliyuncs.com/liyanchao/${repo}:mirror-${count}"
-          docker tag $image $target_image
-          docker push $target_image
-          echo "✅ 完成: $target_image"
+          new_name="registry.cn-beijing.aliyuncs.com/liyanchao/$(echo $image | sed 's|/|_|g' | sed 's|:|-|g')"
+          docker tag $image $new_name
+          docker push $new_name
+          echo "✅ 完成"
           
         done < images.txt
         
