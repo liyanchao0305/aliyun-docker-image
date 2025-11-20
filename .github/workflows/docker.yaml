@@ -1,4 +1,4 @@
-name: Docker Image Mirror with Clear Logs
+name: Docker Image Mirror
 
 on:
   workflow_dispatch:
@@ -20,77 +20,41 @@ jobs:
       run: |
         echo "=== Setup Docker Auth ==="
         mkdir -p ~/.docker
-        
         USERNAME="李彦超0305"
         PASSWORD="${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
-        
-        echo "Username: $USERNAME"
-        echo "Password length: ${#PASSWORD} chars"
-        
         AUTH=$(echo -n "$USERNAME:$PASSWORD" | base64)
         echo "{\"auths\":{\"registry.cn-beijing.aliyuncs.com\":{\"auth\":\"$AUTH\"}}}" > ~/.docker/config.json
-        echo "Auth configured"
 
-    - name: Test Push with Clear Log
+    - name: Sync All Images
       run: |
-        echo "=== Test Push ==="
-        docker pull hello-world
-        TEST_IMAGE="registry.cn-beijing.aliyuncs.com/liyanchao/hello-world:clear-test"
-        echo "Pushing to: $TEST_IMAGE"
-        docker tag hello-world $TEST_IMAGE
-        docker push $TEST_IMAGE
-        echo "SUCCESS: Image pushed to $TEST_IMAGE"
-
-    - name: Check Current Images
-      run: |
-        echo "=== Current local images ==="
-        docker images | head -10
-
-    - name: View images.txt Content
-      run: |
-        echo "=== images.txt Content ==="
-        if [ -f "images.txt" ]; then
-          cat images.txt
-          echo "Total lines: $(wc -l < images.txt)"
-        else
-          echo "images.txt not found"
-        fi
-
-    - name: Sync Images with Progress
-      run: |
-        echo "=== Sync Images Progress ==="
+        echo "=== Syncing All Images ==="
         
         if [ ! -f "images.txt" ]; then
           echo "ERROR: images.txt not found"
           exit 1
         fi
         
+        echo "Images to sync:"
+        cat images.txt
+        echo ""
+        
         COUNT=0
-        while IFS= read -r LINE; do
+        while IFS= read -r IMAGE; do
           # Skip empty lines and comments
-          [[ -z "$LINE" ]] && continue
-          [[ "$LINE" =~ ^[[:space:]]*# ]] && continue
+          [[ -z "$IMAGE" ]] && continue
+          [[ "$IMAGE" =~ ^[[:space:]]*# ]] && continue
           
           COUNT=$((COUNT + 1))
-          echo "--- Processing image $COUNT ---"
-          
-          # Extract image name
-          IMAGE=$(echo "$LINE" | awk '{print $NF}')
-          echo "Source: $IMAGE"
+          echo "--- Processing image $COUNT: $IMAGE ---"
           
           # Pull image
           docker pull $IMAGE
           
-          # Create target name based on source image
-          # Remove registry prefix if present and replace special characters
+          # Create target name
           CLEAN_IMAGE=$(echo "$IMAGE" | sed 's|^docker.io/||' | sed 's|^library/||')
           REPO_NAME=$(echo "$CLEAN_IMAGE" | cut -d':' -f1 | sed 's|/|_|g')
           TAG=$(echo "$CLEAN_IMAGE" | cut -d':' -f2)
-          
-          if [ "$TAG" = "$CLEAN_IMAGE" ]; then
-            # No tag specified, use latest
-            TAG="latest"
-          fi
+          [ "$TAG" = "$CLEAN_IMAGE" ] && TAG="latest"
           
           TARGET_NAME="registry.cn-beijing.aliyuncs.com/liyanchao/${REPO_NAME}:${TAG}"
           echo "Target: $TARGET_NAME"
@@ -99,11 +63,10 @@ jobs:
           docker tag $IMAGE $TARGET_NAME
           docker push $TARGET_NAME
           
-          echo "SUCCESS: $TARGET_NAME"
+          echo "✅ SUCCESS: $IMAGE → $TARGET_NAME"
           echo ""
           
         done < images.txt
         
-        echo "=== SUMMARY ==="
+        echo "=== COMPLETED ==="
         echo "Total images synced: $COUNT"
-        echo "All images pushed to: registry.cn-beijing.aliyuncs.com/liyanchao/"
