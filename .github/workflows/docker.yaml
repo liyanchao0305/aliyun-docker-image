@@ -15,6 +15,9 @@ jobs:
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
+      with:
+        # 确保以正确编码检出文件
+        lfs: false
 
     - name: Setup Docker Authentication
       run: |
@@ -25,26 +28,26 @@ jobs:
         AUTH=$(echo -n "$USERNAME:$PASSWORD" | base64)
         echo "{\"auths\":{\"registry.cn-beijing.aliyuncs.com\":{\"auth\":\"$AUTH\"}}}" > ~/.docker/config.json
 
-    - name: Debug images.txt Content
+    - name: Fix and Debug images.txt
       run: |
-        echo "=== Debug images.txt ==="
+        echo "=== Fixing images.txt encoding ==="
+        # 转换文件编码并移除特殊字符
         if [ -f "images.txt" ]; then
-          echo "Raw content with line numbers:"
-          cat -n images.txt
+          # 备份原文件
+          cp images.txt images.txt.backup
+          # 转换换行符并清理文件
+          dos2unix images.txt 2>/dev/null || true
+          # 使用 sed 清理文件，移除不可见字符
+          sed -i 's/\r$//' images.txt
+          sed -i 's/[^[:print:]\t]//g' images.txt
+          
+          echo "Cleaned images.txt content:"
+          cat -A images.txt
           echo ""
-          echo "Processing each line:"
-          LINE_NUM=0
-          while IFS= read -r LINE; do
-            LINE_NUM=$((LINE_NUM + 1))
-            echo "Line $LINE_NUM: '$LINE'"
-            # Remove carriage returns and trim spaces
-            CLEAN_LINE=$(echo "$LINE" | tr -d '\r' | xargs)
-            if [ -n "$CLEAN_LINE" ] && [[ ! "$CLEAN_LINE" =~ ^[[:space:]]*# ]]; then
-              echo "  → Will process: '$CLEAN_LINE'"
-            else
-              echo "  → Skip (empty or comment)"
-            fi
-          done < images.txt
+          echo "Line by line analysis:"
+          cat -n images.txt | while read num line; do
+            echo "Line $num: '$line' (length: ${#line})"
+          done
         else
           echo "images.txt not found"
           exit 1
@@ -59,21 +62,32 @@ jobs:
           exit 1
         fi
         
+        # 使用数组来存储镜像列表，确保处理所有行
+        mapfile -t IMAGES < <(grep -v '^[[:space:]]*#' images.txt | grep -v '^[[:space:]]*$' | sed 's/[^[:print:]]//g')
+        
+        echo "Found ${#IMAGES[@]} images to sync:"
+        for i in "${!IMAGES[@]}"; do
+          echo "  $((i+1)). ${IMAGES[$i]}"
+        done
+        echo ""
+        
         COUNT=0
-        while IFS= read -r LINE; do
-          # Remove carriage returns and trim spaces
-          IMAGE=$(echo "$LINE" | tr -d '\r' | xargs)
-          
-          # Skip empty lines and comments
-          [[ -z "$IMAGE" ]] && continue
-          [[ "$IMAGE" =~ ^[[:space:]]*# ]] && continue
-          
+        for IMAGE in "${IMAGES[@]}"; do
           COUNT=$((COUNT + 1))
           echo "--- Processing image $COUNT: $IMAGE ---"
           
+          # 验证镜像名称格式
+          if [[ ! "$IMAGE" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9_.-]*)*(:[a-zA-Z0-9][a-zA-Z0-9_.-]*)?$ ]]; then
+            echo "⚠️ WARNING: Skipping invalid image name: $IMAGE"
+            continue
+          fi
+          
           # Pull image
           echo "Pulling source image..."
-          docker pull $IMAGE
+          if ! docker pull "$IMAGE"; then
+            echo "❌ FAILED to pull: $IMAGE"
+            continue
+          fi
           
           # Create target name
           echo "Creating target name..."
@@ -91,15 +105,23 @@ jobs:
           
           # Tag and push
           echo "Tagging image..."
-          docker tag $IMAGE $TARGET_NAME
+          docker tag "$IMAGE" "$TARGET_NAME"
           
           echo "Pushing to target registry..."
-          docker push $TARGET_NAME
-          
-          echo "✅ SUCCESS: $IMAGE → $TARGET_NAME"
+          if docker push "$TARGET_NAME"; then
+            echo "✅ SUCCESS: $IMAGE → $TARGET_NAME"
+          else
+            echo "❌ FAILED to push: $TARGET_NAME"
+          fi
           echo ""
           
-        done < images.txt
+        done
         
         echo "=== COMPLETED ==="
-        echo "Total images synced: $COUNT"
+        echo "Total images processed: $COUNT"
+
+    - name: Verify Sync
+      run: |
+        echo "=== Verification ==="
+        echo "Final docker images list:"
+        docker images | grep -E "(php|mysql)" || echo "No php/mysql images found"
