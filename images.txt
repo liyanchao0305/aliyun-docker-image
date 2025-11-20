@@ -1,2 +1,2 @@
-php:8.4-fpm
+php:8.3-fpm
 mysql:8.0.44
