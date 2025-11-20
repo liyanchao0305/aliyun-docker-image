@@ -1,4 +1,4 @@
-name: Docker Image Mirror Debug
+name: Docker Image Mirror Fixed
 
 on:
   workflow_dispatch:
@@ -9,51 +9,95 @@ on:
 
 jobs:
   mirror-images:
-    name: Mirror Docker Images Debug
+    name: Mirror Docker Images
     runs-on: ubuntu-latest
     
     steps:
-    - name: Check GitHub Secrets
-      run: |
-        echo "=== 检查 GitHub Secrets ==="
-        echo "ALIYUN_REGISTRY_PASSWORD 值: '${{ secrets.ALIYUN_REGISTRY_PASSWORD }}'"
-        echo "ALIYUN_REGISTRY_PASSWORD 长度: ${#ALIYUN_REGISTRY_PASSWORD}"
-        
-        if [ -z "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}" ]; then
-          echo "❌ ALIYUN_REGISTRY_PASSWORD 为空！"
-          echo "请检查："
-          echo "1. Secret 名称是否正确：ALIYUN_REGISTRY_PASSWORD"
-          echo "2. Secret 值是否已设置"
-          echo "3. 是否在正确的仓库中设置"
-          exit 1
-        else
-          echo "✅ ALIYUN_REGISTRY_PASSWORD 已设置"
-        fi
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-    - name: Setup Docker Auth
-      if: success()
+    - name: Setup Docker Auth with Fixed Password
       run: |
-        echo "=== 设置 Docker 认证 ==="
+        echo "=== 使用固定密码设置认证 ==="
         mkdir -p ~/.docker
         
+        # 直接使用固定密码
         USERNAME="李彦超0305"
-        PASSWORD="${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
+        PASSWORD="aliyun123456"
         
         echo "用户名: $USERNAME"
-        echo "密码: [隐藏]"
+        echo "密码: $PASSWORD"
         echo "密码长度: ${#PASSWORD} 字符"
         
+        # 生成认证信息
         AUTH=$(echo -n "$USERNAME:$PASSWORD" | base64)
-        echo "认证Token 长度: ${#AUTH}"
+        echo "认证Token: $AUTH"
         
+        # 创建配置文件
         echo "{\"auths\":{\"registry.cn-beijing.aliyuncs.com\":{\"auth\":\"$AUTH\"}}}" > ~/.docker/config.json
+        
         echo "✅ 认证配置完成"
+        echo "配置文件内容:"
+        cat ~/.docker/config.json
 
-    - name: Test Push
-      if: success()
+    - name: Test Push with Fixed Auth
       run: |
         echo "=== 测试推送 ==="
+        
+        # 拉取测试镜像
         docker pull hello-world
-        docker tag hello-world registry.cn-beijing.aliyuncs.com/liyanchao/php:debug-test
-        docker push registry.cn-beijing.aliyuncs.com/liyanchao/php:debug-test
-        echo "✅ 测试成功"
+        echo "✅ hello-world 拉取成功"
+        
+        # 推送到阿里云
+        TARGET_IMAGE="registry.cn-beijing.aliyuncs.com/liyanchao/php:fixed-password-test"
+        echo "准备推送到: $TARGET_IMAGE"
+        
+        docker tag hello-world $TARGET_IMAGE
+        docker push $TARGET_IMAGE
+        
+        echo "✅ 推送测试成功！"
+
+    - name: Sync Images
+      if: success()
+      run: |
+        echo "=== 同步镜像 ==="
+        
+        if [ ! -f "images.txt" ]; then
+          echo "❌ images.txt 不存在"
+          exit 1
+        fi
+        
+        echo "images.txt 内容:"
+        cat images.txt
+        echo ""
+        
+        count=0
+        while IFS= read -r line; do
+          [[ -z "$line" ]] && continue
+          [[ "$line" =~ ^# ]] && continue
+          
+          count=$((count + 1))
+          echo "处理第 $count 个镜像: $line"
+          
+          image=$(echo "$line" | awk '{print $NF}')
+          docker pull $image
+          
+          # 推送到不同的现有仓库
+          if [ $count -eq 1 ]; then
+            repo="php"
+          elif [ $count -eq 2 ]; then
+            repo="nginx" 
+          elif [ $count -eq 3 ]; then
+            repo="mysql"
+          else
+            repo="other"
+          fi
+          
+          target_image="registry.cn-beijing.aliyuncs.com/liyanchao/${repo}:mirror-${count}"
+          docker tag $image $target_image
+          docker push $target_image
+          echo "✅ 完成: $target_image"
+          
+        done < images.txt
+        
+        echo "🎉 成功同步 $count 个镜像"
