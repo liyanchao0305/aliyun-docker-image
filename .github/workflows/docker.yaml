@@ -135,3 +135,8 @@ jobs:
         done < images.txt
         
         echo "🎉 所有镜像同步完成！"
+    - name: Display Sync Results
+      run: |
+        echo "🎉 镜像同步完成！"
+        echo "📦 同步到：${{ secrets.ALIYUN_REGISTRY }}/${{ secrets.ALIYUN_NAME_SPACE }}/"
+        echo "🌐 查看地址：https://cr.console.aliyun.com/cn-beijing/instances"
