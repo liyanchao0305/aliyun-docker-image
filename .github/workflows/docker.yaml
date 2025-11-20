@@ -1,4 +1,4 @@
-name: Docker Image Mirror
+name: Docker Image Mirror Debug
 
 on:
   workflow_dispatch:
@@ -9,46 +9,51 @@ on:
 
 jobs:
   mirror-images:
-    name: Mirror Docker Images
+    name: Mirror Docker Images Debug
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+    - name: Check GitHub Secrets
+      run: |
+        echo "=== 检查 GitHub Secrets ==="
+        echo "ALIYUN_REGISTRY_PASSWORD 值: '${{ secrets.ALIYUN_REGISTRY_PASSWORD }}'"
+        echo "ALIYUN_REGISTRY_PASSWORD 长度: ${#ALIYUN_REGISTRY_PASSWORD}"
+        
+        if [ -z "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}" ]; then
+          echo "❌ ALIYUN_REGISTRY_PASSWORD 为空！"
+          echo "请检查："
+          echo "1. Secret 名称是否正确：ALIYUN_REGISTRY_PASSWORD"
+          echo "2. Secret 值是否已设置"
+          echo "3. 是否在正确的仓库中设置"
+          exit 1
+        else
+          echo "✅ ALIYUN_REGISTRY_PASSWORD 已设置"
+        fi
 
-    - name: Setup Docker Authentication
+    - name: Setup Docker Auth
+      if: success()
       run: |
         echo "=== 设置 Docker 认证 ==="
         mkdir -p ~/.docker
         
-        # 使用你的阿里云账号密码
         USERNAME="李彦超0305"
         PASSWORD="${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
         
-        # 生成认证信息
-        AUTH=$(echo -n "$USERNAME:$PASSWORD" | base64)
-        
-        # 创建配置文件
-        echo "{\"auths\":{\"registry.cn-beijing.aliyuncs.com\":{\"auth\":\"$AUTH\"}}}" > ~/.docker/config.json
-        
-        echo "✅ 认证配置完成"
         echo "用户名: $USERNAME"
+        echo "密码: [隐藏]"
         echo "密码长度: ${#PASSWORD} 字符"
+        
+        AUTH=$(echo -n "$USERNAME:$PASSWORD" | base64)
+        echo "认证Token 长度: ${#AUTH}"
+        
+        echo "{\"auths\":{\"registry.cn-beijing.aliyuncs.com\":{\"auth\":\"$AUTH\"}}}" > ~/.docker/config.json
+        echo "✅ 认证配置完成"
 
-    - name: Simple Test to Existing Repo
+    - name: Test Push
+      if: success()
       run: |
-        echo "=== 简单测试推送到现有仓库 ==="
-        
-        # 拉取测试镜像
+        echo "=== 测试推送 ==="
         docker pull hello-world
-        echo "✅ hello-world 镜像拉取成功"
-        
-        # 推送到现有的 php 仓库
-        TARGET_IMAGE="registry.cn-beijing.aliyuncs.com/liyanchao/php:hello-test"
-        echo "准备推送到: $TARGET_IMAGE"
-        
-        docker tag hello-world $TARGET_IMAGE
-        docker push $TARGET_IMAGE
-        
-        echo "✅ 测试推送成功！"
-        echo "镜像已推送到: $TARGET_IMAGE"
+        docker tag hello-world registry.cn-beijing.aliyuncs.com/liyanchao/php:debug-test
+        docker push registry.cn-beijing.aliyuncs.com/liyanchao/php:debug-test
+        echo "✅ 测试成功"
