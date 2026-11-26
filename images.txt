@@ -1,3 +1,4 @@
 php:8.5.13-fpm
 mysql:8.0.28
 redis:6.0.9
+nginx:1.30.8
